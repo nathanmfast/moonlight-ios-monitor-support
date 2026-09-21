@@ -13,9 +13,18 @@
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 
+@interface SettingsViewController ()
+- (CGFloat)layoutAdditionalSettingLabel:(UILabel *)label
+                               selector:(UISegmentedControl *)selector
+                                    atY:(CGFloat)y;
+@end
+
 @implementation SettingsViewController {
     NSInteger _bitrate;
     NSInteger _lastSelectedResolutionIndex;
+    UILabel *_reverseScrollLabel;
+    UILabel *_turnOffScreenLabel;
+    UILabel *_disableSmoothingLabel;
 }
 
 @dynamic overrideUserInterfaceStyle;
@@ -70,6 +79,21 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
 // This view is rooted at a ScrollView. To make it scrollable,
 // we'll update content size here.
 -(void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+
+    // The storyboard settings use fixed frames. Lay out the additional rows
+    // the same way so their frames are final before calculating contentSize.
+    CGFloat nextRowY = CGRectGetMaxY(self.statsOverlaySelector.frame) + 20;
+    nextRowY = [self layoutAdditionalSettingLabel:_reverseScrollLabel
+                                         selector:self.reverseScrollSelector
+                                              atY:nextRowY];
+    nextRowY = [self layoutAdditionalSettingLabel:_turnOffScreenLabel
+                                         selector:self.turnOffScreenSelector
+                                              atY:nextRowY + 20];
+    nextRowY = [self layoutAdditionalSettingLabel:_disableSmoothingLabel
+                                         selector:self.disableSmoothingSelector
+                                              atY:nextRowY + 20];
+
     CGFloat highestViewY = 0;
     
     // Enumerate the scroll view's subviews looking for the
@@ -85,15 +109,49 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
             continue;
         }
         
-        CGFloat currentViewY = view.frame.origin.y + view.frame.size.height;
+        CGFloat currentViewY = CGRectGetMaxY(view.frame);
         if (currentViewY > highestViewY) {
             highestViewY = currentViewY;
         }
     }
+
+    // Explicitly include the last programmatic control. This avoids relying on
+    // the order in which UIScrollView and Auto Layout update their subviews.
+    highestViewY = MAX(highestViewY, nextRowY);
     
-    // Add a bit of padding so the view doesn't end right at the button of the display
-    self.scrollView.contentSize = CGSizeMake(self.scrollView.contentSize.width,
+    // Add padding so the view doesn't end at the bottom of the display.
+    self.scrollView.contentSize = CGSizeMake(CGRectGetWidth(self.scrollView.bounds),
                                              highestViewY + 20);
+}
+
+- (CGFloat)layoutAdditionalSettingLabel:(UILabel *)label
+                               selector:(UISegmentedControl *)selector
+                                    atY:(CGFloat)y {
+    if (label == nil || selector == nil) {
+        return y;
+    }
+
+    CGFloat leftEdge = CGRectGetMinX(self.statsOverlaySelector.frame) + 6;
+    CGFloat rightEdge = MIN(CGRectGetMaxX(self.statsOverlaySelector.frame),
+                            CGRectGetWidth(self.scrollView.bounds) - 16);
+    CGSize selectorSize = [selector sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)];
+    CGFloat selectorWidth = MAX(120, selectorSize.width);
+    CGFloat selectorHeight = MAX(28, selectorSize.height);
+    CGFloat selectorX = rightEdge - selectorWidth;
+    CGFloat labelWidth = MAX(0, selectorX - leftEdge - 12);
+    CGFloat labelHeight = ceil(label.intrinsicContentSize.height);
+    CGFloat rowHeight = MAX(labelHeight, selectorHeight);
+
+    label.frame = CGRectMake(leftEdge,
+                             y + (rowHeight - labelHeight) / 2,
+                             labelWidth,
+                             labelHeight);
+    selector.frame = CGRectMake(selectorX,
+                                y + (rowHeight - selectorHeight) / 2,
+                                selectorWidth,
+                                selectorHeight);
+
+    return y + rowHeight;
 }
 
 // Adjust the subviews for the safe area on the iPhone X.
@@ -266,66 +324,45 @@ BOOL isCustomResolution(CGSize res) {
     // Reverse Scroll Toggle
     self.reverseScrollSelector = [[UISegmentedControl alloc] initWithItems:@[@"Off", @"On"]];
     [self.reverseScrollSelector setSelectedSegmentIndex:currentSettings.reverseScrollDirection ? 1 : 0];
-    self.reverseScrollSelector.translatesAutoresizingMaskIntoConstraints = NO;
 
-    UILabel *reverseScrollLabel = [[UILabel alloc] init];
-    reverseScrollLabel.text = @"Reverse Scroll Direction";
-    reverseScrollLabel.textColor = [UIColor labelColor];
-    reverseScrollLabel.font = [UIFont systemFontOfSize:14];
-    reverseScrollLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _reverseScrollLabel = [[UILabel alloc] init];
+    _reverseScrollLabel.text = @"Reverse Scroll Direction";
+    _reverseScrollLabel.textColor = [UIColor labelColor];
+    _reverseScrollLabel.font = [UIFont systemFontOfSize:14];
+    _reverseScrollLabel.adjustsFontSizeToFitWidth = YES;
+    _reverseScrollLabel.minimumScaleFactor = 0.75;
 
-    [self.view addSubview:reverseScrollLabel];
-    [self.view addSubview:self.reverseScrollSelector];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [reverseScrollLabel.topAnchor constraintEqualToAnchor:self.statsOverlaySelector.bottomAnchor constant:20],
-        [reverseScrollLabel.leadingAnchor constraintEqualToAnchor:self.statsOverlaySelector.leadingAnchor],
-        [self.reverseScrollSelector.centerYAnchor constraintEqualToAnchor:reverseScrollLabel.centerYAnchor],
-        [self.reverseScrollSelector.trailingAnchor constraintEqualToAnchor:self.statsOverlaySelector.trailingAnchor],
-    ]];
+    [self.scrollView addSubview:_reverseScrollLabel];
+    [self.scrollView addSubview:self.reverseScrollSelector];
 
     // Turn Off Screen Toggle
     TemporarySettings *s = currentSettings;
     self.turnOffScreenSelector = [[UISegmentedControl alloc] initWithItems:@[@"Off", @"On"]];
     [self.turnOffScreenSelector setSelectedSegmentIndex:s.turnOffScreenOnMonitor ? 1 : 0];
-    self.turnOffScreenSelector.translatesAutoresizingMaskIntoConstraints = NO;
 
-    UILabel *turnOffScreenLabel = [[UILabel alloc] init];
-    turnOffScreenLabel.text = @"Turn Off Screen on Monitor";
-    turnOffScreenLabel.textColor = [UIColor labelColor];
-    turnOffScreenLabel.font = [UIFont systemFontOfSize:14];
-    turnOffScreenLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _turnOffScreenLabel = [[UILabel alloc] init];
+    _turnOffScreenLabel.text = @"Turn Off Screen on Monitor";
+    _turnOffScreenLabel.textColor = [UIColor labelColor];
+    _turnOffScreenLabel.font = [UIFont systemFontOfSize:14];
+    _turnOffScreenLabel.adjustsFontSizeToFitWidth = YES;
+    _turnOffScreenLabel.minimumScaleFactor = 0.75;
 
-    [self.view addSubview:turnOffScreenLabel];
-    [self.view addSubview:self.turnOffScreenSelector];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [turnOffScreenLabel.topAnchor constraintEqualToAnchor:reverseScrollLabel.bottomAnchor constant:20],
-        [turnOffScreenLabel.leadingAnchor constraintEqualToAnchor:self.statsOverlaySelector.leadingAnchor],
-        [self.turnOffScreenSelector.centerYAnchor constraintEqualToAnchor:turnOffScreenLabel.centerYAnchor],
-        [self.turnOffScreenSelector.trailingAnchor constraintEqualToAnchor:self.statsOverlaySelector.trailingAnchor],
-    ]];
+    [self.scrollView addSubview:_turnOffScreenLabel];
+    [self.scrollView addSubview:self.turnOffScreenSelector];
 
     // Disable Mouse Smoothing Toggle
     self.disableSmoothingSelector = [[UISegmentedControl alloc] initWithItems:@[@"Off", @"On"]];
     [self.disableSmoothingSelector setSelectedSegmentIndex:s.disableMouseSmoothing ? 1 : 0];
-    self.disableSmoothingSelector.translatesAutoresizingMaskIntoConstraints = NO;
 
-    UILabel *disableSmoothingLabel = [[UILabel alloc] init];
-    disableSmoothingLabel.text = @"Disable Mouse Smoothing";
-    disableSmoothingLabel.textColor = [UIColor labelColor];
-    disableSmoothingLabel.font = [UIFont systemFontOfSize:14];
-    disableSmoothingLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _disableSmoothingLabel = [[UILabel alloc] init];
+    _disableSmoothingLabel.text = @"Disable Mouse Smoothing";
+    _disableSmoothingLabel.textColor = [UIColor labelColor];
+    _disableSmoothingLabel.font = [UIFont systemFontOfSize:14];
+    _disableSmoothingLabel.adjustsFontSizeToFitWidth = YES;
+    _disableSmoothingLabel.minimumScaleFactor = 0.75;
 
-    [self.view addSubview:disableSmoothingLabel];
-    [self.view addSubview:self.disableSmoothingSelector];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [disableSmoothingLabel.topAnchor constraintEqualToAnchor:turnOffScreenLabel.bottomAnchor constant:20],
-        [disableSmoothingLabel.leadingAnchor constraintEqualToAnchor:self.statsOverlaySelector.leadingAnchor],
-        [self.disableSmoothingSelector.centerYAnchor constraintEqualToAnchor:disableSmoothingLabel.centerYAnchor],
-        [self.disableSmoothingSelector.trailingAnchor constraintEqualToAnchor:self.statsOverlaySelector.trailingAnchor],
-    ]];
+    [self.scrollView addSubview:_disableSmoothingLabel];
+    [self.scrollView addSubview:self.disableSmoothingSelector];
 
     [self updateBitrateText];
     [self updateResolutionDisplayViewText];

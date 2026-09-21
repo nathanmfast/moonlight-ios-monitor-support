@@ -24,6 +24,12 @@ static NSString* DB_NAME = @"Limelight_iOS.sqlite";
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
 #if !TARGET_OS_TV
+    // Registration supplies a default only when the user has not saved a value.
+    // It never replaces an explicit Off selection stored in NSUserDefaults.
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"turnOffScreenOnMonitor": @YES,
+    }];
+
     UIApplicationShortcutItem* shortcut = [launchOptions valueForKey:UIApplicationLaunchOptionsShortcutItemKey];
     if (shortcut != nil) {
         _pcUuidToLoad = (NSString*)[shortcut.userInfo objectForKey:@"UUID"];

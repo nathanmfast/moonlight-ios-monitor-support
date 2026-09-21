@@ -90,29 +90,8 @@
                     blackout.autoresizingMask = 
                         UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
                     
-                    // Add "Touchpad Mode" label
-                    UILabel *label = [[UILabel alloc] init];
-                    label.text = @"Touchpad Mode";
-                    label.textColor = [UIColor colorWithWhite:1.0 alpha:0.3];
-                    label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightLight];
-                    label.translatesAutoresizingMaskIntoConstraints = NO;
-                    [blackout addSubview:label];
-                    
-                    UILabel *sublabel = [[UILabel alloc] init];
-                    sublabel.text = @"Stream active on monitor";
-                    sublabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.15];
-                    sublabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightLight];
-                    sublabel.translatesAutoresizingMaskIntoConstraints = NO;
-                    [blackout addSubview:sublabel];
-                    
-                    [NSLayoutConstraint activateConstraints:@[
-                        [label.centerXAnchor constraintEqualToAnchor:blackout.centerXAnchor],
-                        [label.centerYAnchor constraintEqualToAnchor:blackout.centerYAnchor],
-                        [sublabel.centerXAnchor constraintEqualToAnchor:blackout.centerXAnchor],
-                        [sublabel.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:8],
-                    ]];
-                    
                     [targetView addSubview:blackout];
+                    [streamVC setNeedsUpdateOfHomeIndicatorAutoHidden];
                 }
             }
         });
@@ -571,13 +550,29 @@ vc.view.frame = CGRectMake(0, 0, screen.bounds.size.width, screen.bounds.size.he
     [self.navigationController popToRootViewControllerAnimated:YES];
 }
 
+- (BOOL)shouldContinueStreamingInBackground {
+#if TARGET_OS_TV
+    return NO;
+#else
+    // Background continuation is only needed for a live external display.
+    // The active stream audio provides the public iOS background execution mode.
+    return UIScreen.screens.count > 1;
+#endif
+}
+
 // This will fire if the user opens control center or gets a low battery message
 - (void)applicationWillResignActive:(NSNotification *)notification {
     if (_inactivityTimer != nil) {
         [_inactivityTimer invalidate];
+        _inactivityTimer = nil;
     }
     
 #if !TARGET_OS_TV
+    if ([self shouldContinueStreamingInBackground]) {
+        Log(LOG_I, @"Keeping stream active while an external display is connected");
+        return;
+    }
+
     // Terminate the stream if the app is inactive for 60 seconds
     Log(LOG_I, @"Starting inactivity termination timer");
     _inactivityTimer = [NSTimer scheduledTimerWithTimeInterval:60
@@ -605,14 +600,19 @@ vc.view.frame = CGRectMake(0, 0, screen.bounds.size.width, screen.bounds.size.he
     }
 }
 
-// This fires when the home button is pressed
-- (void)applicationDidEnterBackground:(UIApplication *)application {
-    Log(LOG_I, @"Terminating stream immediately for backgrounding");
-
+// This fires when the app enters the background, including when the phone locks.
+- (void)applicationDidEnterBackground:(NSNotification *)notification {
     if (_inactivityTimer != nil) {
         [_inactivityTimer invalidate];
         _inactivityTimer = nil;
     }
+
+    if ([self shouldContinueStreamingInBackground]) {
+        Log(LOG_I, @"External display connected; continuing stream with background audio");
+        return;
+    }
+
+    Log(LOG_I, @"Terminating stream immediately for backgrounding");
     
     [self returnToMainFrame];
 }
@@ -644,30 +644,10 @@ vc.view.frame = CGRectMake(0, 0, screen.bounds.size.width, screen.bounds.size.he
                 blackout.autoresizingMask =
                     UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
                 
-                UILabel *label = [[UILabel alloc] init];
-                label.text = @"Touchpad Mode";
-                label.textColor = [UIColor colorWithWhite:1.0 alpha:0.3];
-                label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightLight];
-                label.translatesAutoresizingMaskIntoConstraints = NO;
-                [blackout addSubview:label];
-                
-                UILabel *sublabel = [[UILabel alloc] init];
-                sublabel.text = @"Stream active on monitor";
-                sublabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.15];
-                sublabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightLight];
-                sublabel.translatesAutoresizingMaskIntoConstraints = NO;
-                [blackout addSubview:sublabel];
-                
-                [NSLayoutConstraint activateConstraints:@[
-                    [label.centerXAnchor constraintEqualToAnchor:blackout.centerXAnchor],
-                    [label.centerYAnchor constraintEqualToAnchor:blackout.centerYAnchor],
-                    [sublabel.centerXAnchor constraintEqualToAnchor:blackout.centerXAnchor],
-                    [sublabel.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:8],
-                ]];
-                
                 // Add on top of everything
                 [self.view addSubview:blackout];
                 [self.view bringSubviewToFront:blackout];
+                [self setNeedsUpdateOfHomeIndicatorAutoHidden];
             }
         }
         
@@ -966,6 +946,11 @@ vc.view.frame = CGRectMake(0, 0, screen.bounds.size.width, screen.bounds.size.he
 }
 
 - (BOOL)prefersHomeIndicatorAutoHidden {
+    // Keep the local OLED fully black while the transparent touch surface remains active.
+    if ([self.view viewWithTag:8888] != nil) {
+        return YES;
+    }
+
     if ([_controllerSupport getConnectedGamepadCount] > 0 &&
         [_streamView getCurrentOscState] == OnScreenControlsLevelOff &&
         _userIsInteracting == NO) {

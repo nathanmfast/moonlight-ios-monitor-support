@@ -9,6 +9,7 @@
 #import "Connection.h"
 #import "Utils.h"
 
+#import <AVFoundation/AVFoundation.h>
 #import <VideoToolbox/VideoToolbox.h>
 
 #define SDL_MAIN_HANDLED
@@ -234,8 +235,19 @@ int ArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, v
     // Start playback
     SDL_PauseAudioDevice(audioDevice, 0);
     
-    // Disable lowering volume of other audio streams (SDL sets AVAudioSessionCategoryOptionDuckOthers by default)
-    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
+    // Disable lowering volume of other audio streams (SDL sets AVAudioSessionCategoryOptionDuckOthers by default).
+    // Playback is also the public background mode that allows an audible game stream
+    // to continue when the phone locks while video is shown on an external display.
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    NSError *sessionError = nil;
+    if (![session setCategory:AVAudioSessionCategoryPlayback
+                  withOptions:AVAudioSessionCategoryOptionMixWithOthers
+                        error:&sessionError]) {
+        Log(LOG_W, @"Failed to configure background audio session: %@", sessionError);
+    }
+    else if (![session setActive:YES error:&sessionError]) {
+        Log(LOG_W, @"Failed to activate background audio session: %@", sessionError);
+    }
     
     return 0;
 }
