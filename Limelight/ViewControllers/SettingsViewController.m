@@ -14,6 +14,7 @@
 #import <AVFoundation/AVFoundation.h>
 
 @interface SettingsViewController ()
+- (void)layoutAdditionalSettings;
 - (CGFloat)layoutAdditionalSettingLabel:(UILabel *)label
                                selector:(UISegmentedControl *)selector
                                     atY:(CGFloat)y;
@@ -81,6 +82,22 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
 -(void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
 
+    [self layoutAdditionalSettings];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+
+    // UIScrollView can recalculate its content size after the first layout pass.
+    // Apply the final size again once the settings controller is on screen.
+    [self layoutAdditionalSettings];
+}
+
+- (void)layoutAdditionalSettings {
+    if (self.statsOverlaySelector == nil || self.scrollView == nil) {
+        return;
+    }
+
     // The storyboard settings use fixed frames. Lay out the additional rows
     // the same way so their frames are final before calculating contentSize.
     CGFloat nextRowY = CGRectGetMaxY(self.statsOverlaySelector.frame) + 20;
@@ -89,10 +106,10 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
                                               atY:nextRowY];
     nextRowY = [self layoutAdditionalSettingLabel:_turnOffScreenLabel
                                          selector:self.turnOffScreenSelector
-                                              atY:nextRowY + 20];
+                                              atY:nextRowY];
     nextRowY = [self layoutAdditionalSettingLabel:_disableSmoothingLabel
                                          selector:self.disableSmoothingSelector
-                                              atY:nextRowY + 20];
+                                              atY:nextRowY];
 
     CGFloat highestViewY = 0;
     
@@ -120,8 +137,9 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
     highestViewY = MAX(highestViewY, nextRowY);
     
     // Add padding so the view doesn't end at the bottom of the display.
-    self.scrollView.contentSize = CGSizeMake(CGRectGetWidth(self.scrollView.bounds),
-                                             highestViewY + 20);
+    CGFloat contentWidth = MAX(CGRectGetWidth(self.scrollView.bounds),
+                               CGRectGetMaxX(self.statsOverlaySelector.frame) + 16);
+    self.scrollView.contentSize = CGSizeMake(contentWidth, highestViewY + 32);
 }
 
 - (CGFloat)layoutAdditionalSettingLabel:(UILabel *)label
@@ -131,27 +149,22 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
         return y;
     }
 
-    CGFloat leftEdge = CGRectGetMinX(self.statsOverlaySelector.frame) + 6;
-    CGFloat rightEdge = MIN(CGRectGetMaxX(self.statsOverlaySelector.frame),
-                            CGRectGetWidth(self.scrollView.bounds) - 16);
-    CGSize selectorSize = [selector sizeThatFits:CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX)];
-    CGFloat selectorWidth = MAX(120, selectorSize.width);
+    CGFloat leftEdge = CGRectGetMinX(self.statsOverlaySelector.frame);
+    CGFloat availableWidth = CGRectGetWidth(self.scrollView.bounds) - leftEdge - 16;
+    CGFloat rowWidth = MIN(CGRectGetWidth(self.statsOverlaySelector.frame),
+                           availableWidth);
+    rowWidth = MAX(rowWidth, 120);
+    CGSize selectorSize = [selector sizeThatFits:CGSizeMake(rowWidth, CGFLOAT_MAX)];
     CGFloat selectorHeight = MAX(28, selectorSize.height);
-    CGFloat selectorX = rightEdge - selectorWidth;
-    CGFloat labelWidth = MAX(0, selectorX - leftEdge - 12);
     CGFloat labelHeight = ceil(label.intrinsicContentSize.height);
-    CGFloat rowHeight = MAX(labelHeight, selectorHeight);
 
-    label.frame = CGRectMake(leftEdge,
-                             y + (rowHeight - labelHeight) / 2,
-                             labelWidth,
-                             labelHeight);
-    selector.frame = CGRectMake(selectorX,
-                                y + (rowHeight - selectorHeight) / 2,
-                                selectorWidth,
-                                selectorHeight);
+    // Match the existing settings: a label followed by a full-width selector.
+    // This also makes every added option easy to identify on a narrow iPhone.
+    label.frame = CGRectMake(leftEdge + 6, y, rowWidth - 12, labelHeight);
+    selector.frame = CGRectMake(leftEdge, CGRectGetMaxY(label.frame) + 8,
+                                rowWidth, selectorHeight);
 
-    return y + rowHeight;
+    return CGRectGetMaxY(selector.frame) + 20;
 }
 
 // Adjust the subviews for the safe area on the iPhone X.
@@ -186,6 +199,10 @@ BOOL isCustomResolution(CGSize res) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+
+    self.scrollView.scrollEnabled = YES;
+    self.scrollView.alwaysBounceVertical = YES;
+    self.scrollView.showsVerticalScrollIndicator = YES;
 
     // Always run settings in dark mode because we want the light fonts
     if (@available(iOS 13.0, tvOS 13.0, *)) {
@@ -363,6 +380,12 @@ BOOL isCustomResolution(CGSize res) {
 
     [self.scrollView addSubview:_disableSmoothingLabel];
     [self.scrollView addSubview:self.disableSmoothingSelector];
+
+    // Request another pass after all programmatic rows have been installed.
+    [self.view setNeedsLayout];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self layoutAdditionalSettings];
+    });
 
     [self updateBitrateText];
     [self updateResolutionDisplayViewText];
